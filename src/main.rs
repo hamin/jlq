@@ -6,7 +6,8 @@ use structopt::StructOpt;
 use std::fs;
 
 
-use rusqlite::{Connection as SqliteConnection};
+use rusqlite::Connection as SqliteConnection;
+use rusqlite::Result;
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "basic")]
@@ -46,13 +47,20 @@ struct Opt {
     files: Vec<PathBuf>,
 }
 
-fn main() {
+#[derive(Debug)]
+struct Log {
+    id: i32,
+    filename: String,
+    json_line: String,
+}
+
+fn main() -> Result<()> {
     let opt = Opt::from_args();
-    let _query = opt.query;
+    let query = opt.query;
     // println!("{:#?}", opt);
     // println!("{:#?}", opt.query);
 
-    let conn = SqliteConnection::open("test.db").unwrap();
+    let conn = &SqliteConnection::open("test.db").unwrap();
     conn.execute_batch(&format!(r#"
         CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, filename TEXT, json_line JSON);
         DELETE FROM logs;
@@ -63,7 +71,28 @@ fn main() {
         import_logfile(&f, &conn);
     }
 
-    conn.close().unwrap();
+    let q = format!(r#"
+        SELECT * FROM logs WHERE json_valid(json_line) AND {};
+        "#, query.unwrap());
+
+    // let mut stmt = conn.prepare("SELECT * FROM logs WHERE json_valid(json_line) AND json_line->'message' LIKE '%starting: Automated execution service%';")?;
+    let mut stmt = conn.prepare(&q)?;
+    let log_iter = stmt.query_map([], |row| {
+        Ok(Log {
+            id: row.get(0)?,
+            filename: row.get(1)?,
+            json_line: row.get(2)?,
+        })
+    })?;
+
+    for log_line in log_iter {
+        // println!("Found log_line {:?}", log_line?.json_line);
+        println!("{:#}", log_line?.json_line);
+    }
+
+    // conn.close().unwrap();
+
+    Ok(())
 }
 
 fn import_logfile(pb:&PathBuf, conn:&rusqlite::Connection) {
@@ -83,7 +112,7 @@ fn import_logfile(pb:&PathBuf, conn:&rusqlite::Connection) {
 
                 match insert {
                     Ok(_) => {
-                        println!("{:#}", l.replace("'", "''"));
+                        // println!("{:#}", l.replace("'", "''"));
                     }
                     Err(err) => {
                         println!("*******************************");
