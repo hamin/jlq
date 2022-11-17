@@ -49,8 +49,8 @@ struct Opt {
 
 #[derive(Debug)]
 struct Log {
-    id: i32,
-    filename: String,
+    _id: i32,
+    _filename: String,
     json_line: String,
 }
 
@@ -71,26 +71,9 @@ fn main() -> Result<()> {
         import_logfile(&f, &conn);
     }
 
-    let q = format!(r#"
-        SELECT * FROM logs WHERE json_valid(json_line) AND {};
-        "#, query.unwrap());
-
-    // let mut stmt = conn.prepare("SELECT * FROM logs WHERE json_valid(json_line) AND json_line->'message' LIKE '%starting: Automated execution service%';")?;
-    let mut stmt = conn.prepare(&q)?;
-    let log_iter = stmt.query_map([], |row| {
-        Ok(Log {
-            id: row.get(0)?,
-            filename: row.get(1)?,
-            json_line: row.get(2)?,
-        })
-    })?;
-
-    for log_line in log_iter {
-        // println!("Found log_line {:?}", log_line?.json_line);
-        println!("{:#}", log_line?.json_line);
+    if let Some(q) = query {
+        let _ = filter_logs_by_query(q, conn);
     }
-
-    // conn.close().unwrap();
 
     Ok(())
 }
@@ -126,5 +109,25 @@ fn import_logfile(pb:&PathBuf, conn:&rusqlite::Connection) {
             }
         }
     }
+}
+
+fn filter_logs_by_query(query: String, conn:&rusqlite::Connection) -> Result<(), rusqlite::Error> {
+    let q = format!(r#"
+        SELECT * FROM logs WHERE json_valid(json_line) AND {};
+        "#, query);
+
+    let mut stmt = conn.prepare(&q)?;
+    let log_iter = stmt.query_map([], |row| {
+        Ok(Log {
+            _id: row.get(0)?,
+            _filename: row.get(1)?,
+            json_line: row.get(2)?,
+        })
+    })?;
+
+    for log_line in log_iter {
+        println!("{:#}", log_line?.json_line);
+    }
+    Ok(())
 }
 
