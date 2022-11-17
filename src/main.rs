@@ -1,3 +1,4 @@
+use rusqlite::Error;
 use std::io::BufRead;
 use std::fs::File;
 use std::io::BufReader;
@@ -10,35 +11,25 @@ use rusqlite::Connection as SqliteConnection;
 use rusqlite::Result;
 
 #[derive(StructOpt, Debug)]
-#[structopt(name = "basic")]
+#[structopt(name = "jlq")]
 struct Opt {
     // A flag, true if used in the command line. Note doc comment will
     // be used for the help message of the flag. The name of the
     // argument will be, by default, based on the name of the field.
     /// Activate debug mode
-    // #[structopt(short, long)]
-    // debug: bool,
+    #[structopt(short, long)]
+    _debug: bool,
 
     // The number of occurrences of the `v/verbose` flag
     /// Verbose mode (-v, -vv, -vvv, etc.)
-    // #[structopt(short, long, parse(from_occurrences))]
-    // verbose: u8,
+    #[structopt(short, long, parse(from_occurrences))]
+    _verbose: u8,
 
-    /// Set speed
-    // #[structopt(short, long, default_value = "42")]
-    // speed: f64,
+    /// Run SQLite in-memory mode
+    #[structopt(short = "m", long)]
+    in_memory_storage: bool,
 
-    // /// Output file
-    // #[structopt(short, long, parse(from_os_str))]
-    // output: PathBuf,
-
-    // the long option will be translated by default to kebab case,
-    // i.e. `--nb-cars`.
-    /// Number of cars
-    // #[structopt(short = "c", long)]
-    // nb_cars: Option<i32>,
-
-    /// admin_level to consider
+    /// SQLite json query e.g. "json_line->>'level_name' = 'DEBUG'"
     #[structopt(short, long)]
     query: Option<String>,
 
@@ -54,13 +45,21 @@ struct Log {
     json_line: String,
 }
 
+fn get_sqlite_conn(use_in_memory:bool) -> Result<SqliteConnection, Error> {
+    if use_in_memory {
+        return SqliteConnection::open_in_memory()
+    }
+    return SqliteConnection::open("test.db");
+}
+
 fn main() -> Result<()> {
     let opt = Opt::from_args();
     let query = opt.query;
     // println!("{:#?}", opt);
     // println!("{:#?}", opt.query);
 
-    let conn = &SqliteConnection::open("test.db").unwrap();
+    let conn = get_sqlite_conn(opt.in_memory_storage).unwrap();
+
     conn.execute_batch(&format!(r#"
         CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, filename TEXT, json_line JSON);
         DELETE FROM logs;
@@ -72,7 +71,7 @@ fn main() -> Result<()> {
     }
 
     if let Some(q) = query {
-        let _ = filter_logs_by_query(q, conn);
+        let _ = filter_logs_by_query(q, &conn);
     }
 
     Ok(())
