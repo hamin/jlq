@@ -10,6 +10,8 @@ use std::fs;
 use rusqlite::Connection as SqliteConnection;
 use rusqlite::Result;
 
+use linemux::MuxedLines;
+
 #[derive(StructOpt, Debug)]
 #[structopt(name = "jlq")]
 struct Opt {
@@ -33,6 +35,9 @@ struct Opt {
     #[structopt(short, long)]
     query: Option<String>,
 
+    #[structopt(short, long)]
+    tail: bool,
+
     /// Files to process
     #[structopt(name = "FILE", parse(from_os_str))]
     files: Vec<PathBuf>,
@@ -52,7 +57,8 @@ fn get_sqlite_conn(use_in_memory:bool) -> Result<SqliteConnection, Error> {
     return SqliteConnection::open("test.db");
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+pub async fn main() -> std::io::Result<()> {
     let opt = Opt::from_args();
     let query = opt.query;
     // println!("{:#?}", opt);
@@ -67,11 +73,34 @@ fn main() -> Result<()> {
     ).unwrap();
 
     for f in opt.files {
-        import_logfile(&f, &conn);
+
+        if opt.tail {
+            let full_path =  fs::canonicalize(f).unwrap();
+            let mut lines = MuxedLines::new()?;
+
+            lines.add_file(&full_path).await?;
+
+            while let Ok(Some(line)) = lines.next_line().await {
+                // println!("({}) {}", line.source().display(), line.line());
+                // println!("{:#}", line.line());
+
+                let _insert = conn.execute_batch(&format!(r#"
+                    INSERT INTO logs VALUES(null, "{}", '{}');
+                    "#, line.source().display(), line.line().replace("'", "''"))
+                );
+                if let Some(ref q) = query {
+                    let _ = filter_logs_by_query(q.to_string(), &conn);
+                }
+            }
+        } else {
+            import_logfile(&f, &conn);
+        }
     }
 
     if let Some(q) = query {
-        let _ = filter_logs_by_query(q, &conn);
+        if opt.tail == false {
+            let _ = filter_logs_by_query(q, &conn);
+        }
     }
 
     Ok(())
