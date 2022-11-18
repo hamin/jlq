@@ -12,6 +12,9 @@ use rusqlite::Result;
 
 use linemux::MuxedLines;
 
+use colored_json;
+use colored_json::prelude::*;
+
 #[derive(StructOpt, Debug)]
 #[structopt(name = "jlq")]
 struct Opt {
@@ -59,6 +62,9 @@ fn get_sqlite_conn(use_in_memory:bool) -> Result<SqliteConnection, Error> {
 
 #[tokio::main]
 pub async fn main() -> std::io::Result<()> {
+    #[cfg(windows)]
+    let _enabled = colored_json::enable_ansi_support();
+
     let opt = Opt::from_args();
     let query = opt.query;
     // println!("{:#?}", opt);
@@ -154,7 +160,9 @@ fn filter_logs_by_query(query: String, conn:&rusqlite::Connection) -> Result<(),
     })?;
 
     for log_line in log_iter {
-        println!("{:#}", log_line?.json_line);
+        if let Ok(l) = log_line?.json_line.to_colored_json_auto() {
+            println!("{:#}", l);
+        }
     }
     Ok(())
 }

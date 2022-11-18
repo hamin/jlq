@@ -11,3 +11,4 @@ structopt = "0.3"
 tokio = { version = "1.16", features = [ "net", "rt-multi-thread", "macros", "io-util", "io-std" ] }
 tokio-util = { version = "0.6", features = [ "codec" ] }
 linemux = "0.2"
+colored_json = "3.0.1"
