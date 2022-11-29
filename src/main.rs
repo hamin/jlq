@@ -24,7 +24,7 @@ struct Opt {
     // argument will be, by default, based on the name of the field.
     /// Activate debug mode
     #[structopt(short, long)]
-    _debug: bool,
+    debug: bool,
 
     // The number of occurrences of the `v/verbose` flag
     /// Verbose mode (-v, -vv, -vvv, etc.)
@@ -67,12 +67,16 @@ pub async fn main() -> std::io::Result<()> {
     let _enabled = colored_json::enable_ansi_support();
 
     let opt = Opt::from_args();
-    let query = opt.query;
-    // println!("{:#?}", opt);
-    // println!("{:#?}", opt.query);
+    let query = &opt.query;
+
+    if opt.debug {
+        println!("*** Options: {:#?} ***", opt);
+        println!("*** Query {:#?} ***", query);
+    }
 
     let conn = get_sqlite_conn(opt.in_memory_storage).expect("Unable to get SQlite connection!");
 
+    // TODO: Figure out appropriate SQLite Pragma Settings for optimal performance
     // let _ = conn.pragma_update(None, "synchronous", "normal").unwrap();
     // let _ = conn.pragma_update(None, "journal_mode", "WAL").unwrap();
 
@@ -104,8 +108,9 @@ pub async fn main() -> std::io::Result<()> {
         }
 
         while let Ok(Some(line)) = lines.next_line().await {
-            // println!("({}) {}", line.source().display(), line.line());
-            // println!("{:#}", line.line());
+            if opt.debug {
+                println!("*** Tailed New Line: ({}) {} ***", line.source().display(), line.line());
+            }
             let _insert = conn.execute_batch(&format!(r#"
                 INSERT INTO logs VALUES(null, "{}", '{}');
                 "#, line.source().display(), line.line().replace("'", "''"))
@@ -116,11 +121,11 @@ pub async fn main() -> std::io::Result<()> {
         }
     } else {
         for f in opt.files {
-            import_logfile(&f, &conn);
+            import_logfile(&f, &conn, opt.debug);
         }
         if let Some(q) = query {
             if opt.tail == false {
-                let _ = filter_logs_by_query(q, &conn);
+                let _ = filter_logs_by_query(q.to_string(), &conn);
             }
         }
     }
@@ -128,10 +133,14 @@ pub async fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-fn import_logfile(pb:&PathBuf, conn:&rusqlite::Connection) {
+fn import_logfile(pb:&PathBuf, conn:&rusqlite::Connection, debug:bool) {
     let full_path =  fs::canonicalize(pb).unwrap();
     let filename = full_path.display();
-    // println!("Full filepath: {}", filename);
+
+    if debug {
+        println!("*** Import Full Filepath: {} ***", filename);
+    }
+
     let f = File::open(&full_path).unwrap();
 
     let reader = BufReader::new(f);
@@ -145,11 +154,11 @@ fn import_logfile(pb:&PathBuf, conn:&rusqlite::Connection) {
 
                 match insert {
                     Ok(_) => {
-                        // println!("{:#}", l.replace("'", "''"));
+                        if debug {
+                            println!("*** Importing {:#} ***", l.replace("'", "''"));
+                        }
                     }
                     Err(err) => {
-                        println!("*******************************");
-                        println!("{:#}", l.replace("'", "''"));
                         panic!("Failed to insert! {:#}", err);
                     }
                 }
