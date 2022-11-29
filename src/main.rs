@@ -1,11 +1,11 @@
 use rusqlite::Error;
+
 use std::io::BufRead;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 use structopt::StructOpt;
 use std::fs;
-
 
 use rusqlite::Connection as SqliteConnection;
 use rusqlite::Result;
@@ -14,6 +14,7 @@ use linemux::MuxedLines;
 
 use colored_json;
 use colored_json::prelude::*;
+
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "jlq")]
@@ -48,7 +49,7 @@ struct Opt {
 
 #[derive(Debug)]
 struct Log {
-    _id: i32,
+    _id: i64,
     _filename: String,
     json_line: String,
 }
@@ -70,42 +71,57 @@ pub async fn main() -> std::io::Result<()> {
     // println!("{:#?}", opt);
     // println!("{:#?}", opt.query);
 
-    let conn = get_sqlite_conn(opt.in_memory_storage).unwrap();
+    let conn = get_sqlite_conn(opt.in_memory_storage).expect("Unable to get SQlite connection!");
+
+    // let _ = conn.pragma_update(None, "synchronous", "normal").unwrap();
+    // let _ = conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+
+    // PRAGMA journal_mode = OFF;
+    // PRAGMA synchronous = 0;
+    // PRAGMA cache_size = 1000000;
+    // PRAGMA locking_mode = EXCLUSIVE;
+    // PRAGMA temp_store = MEMORY;
+    // let _ = conn.pragma_update(None, "journal_mode", "OFF");
+    // let _ = conn.pragma_update(None, "synchronous", "0");
+    // let _ = conn.pragma_update(None, "cache_size", "1000000");
+    // let _ = conn.pragma_update(None, "locking_mode", "EXCLUSIVE");
+    // let _ = conn.pragma_update(None, "temp_store", "MEMORY");
 
     conn.execute_batch(&format!(r#"
         CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, filename TEXT, json_line JSON);
         DELETE FROM logs;
         "#)
-    ).unwrap();
+    ).expect("Unable to create 'logs' Table!");
 
-    for f in opt.files {
+    if opt.tail {
+        let mut lines = MuxedLines::new()?;
 
-        if opt.tail {
-            let full_path =  fs::canonicalize(f).unwrap();
-            let mut lines = MuxedLines::new()?;
-
+        for f in opt.files {
+            let filename = f.file_name().expect("Missing logfile!").to_str().expect("Could not convert filename to string!");
+            let missing_filename_msg = format!("Logfile not found: {:#}", filename);
+            let full_path =  fs::canonicalize(f).expect(&missing_filename_msg);
             lines.add_file(&full_path).await?;
+        }
 
-            while let Ok(Some(line)) = lines.next_line().await {
-                // println!("({}) {}", line.source().display(), line.line());
-                // println!("{:#}", line.line());
-
-                let _insert = conn.execute_batch(&format!(r#"
-                    INSERT INTO logs VALUES(null, "{}", '{}');
-                    "#, line.source().display(), line.line().replace("'", "''"))
-                );
-                if let Some(ref q) = query {
-                    let _ = filter_logs_by_query(q.to_string(), &conn);
-                }
+        while let Ok(Some(line)) = lines.next_line().await {
+            // println!("({}) {}", line.source().display(), line.line());
+            // println!("{:#}", line.line());
+            let _insert = conn.execute_batch(&format!(r#"
+                INSERT INTO logs VALUES(null, "{}", '{}');
+                "#, line.source().display(), line.line().replace("'", "''"))
+            );
+            if let Some(ref q) = query {
+                let _ = filter_logs_by_query(q.to_string(), &conn);
             }
-        } else {
+        }
+    } else {
+        for f in opt.files {
             import_logfile(&f, &conn);
         }
-    }
-
-    if let Some(q) = query {
-        if opt.tail == false {
-            let _ = filter_logs_by_query(q, &conn);
+        if let Some(q) = query {
+            if opt.tail == false {
+                let _ = filter_logs_by_query(q, &conn);
+            }
         }
     }
 
