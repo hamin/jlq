@@ -77,10 +77,6 @@ pub async fn main() -> std::io::Result<()> {
 
     let conn = get_sqlite_conn(opt.in_memory_storage).expect("Unable to get SQlite connection!");
 
-    // TODO: Figure out appropriate SQLite Pragma Settings for optimal performance
-    // let _ = conn.pragma_update(None, "synchronous", "normal").unwrap();
-    // let _ = conn.pragma_update(None, "journal_mode", "WAL").unwrap();
-
     conn.execute_batch(&format!(r#"
         CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, filename TEXT, json_line JSON);
         DELETE FROM logs;
@@ -97,14 +93,18 @@ pub async fn main() -> std::io::Result<()> {
             lines.add_file(&full_path).await?;
         }
 
+        // When tailing, we're going to use WAL so SQLite file can externally be queried too if wanted/needed. Also yields better performance.
+        let _ = conn.pragma_update(None, "synchronous", "normal").unwrap();
+        let _ = conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+
+        let mut stmt = conn.prepare_cached("INSERT INTO logs (filename, json_line) VALUES(?1, ?2)");
+
         while let Ok(Some(line)) = lines.next_line().await {
             if opt.verbose > 1 {
                 println!("*** Tailed New Line: ({}) {} ***", line.source().display(), line.line());
             }
-            let _insert = conn.execute_batch(&format!(r#"
-                INSERT INTO logs VALUES(null, "{}", '{}');
-                "#, line.source().display(), line.line().replace("'", "''"))
-            );
+
+            let _insert = stmt.as_mut().expect("Import Prepare Statement Failed!").execute(params![line.source().to_str().expect("No Fillename for Tailed File!"), line.line().replace("'", "''")]);
             if let Some(ref q) = query {
                 let _ = filter_logs_by_query(q.to_string(), &conn);
             }
