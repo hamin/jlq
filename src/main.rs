@@ -1,4 +1,5 @@
 use rusqlite::Error;
+use rusqlite::params;
 
 use std::io::BufRead;
 use std::fs::File;
@@ -14,7 +15,7 @@ use linemux::MuxedLines;
 
 use colored_json;
 use colored_json::prelude::*;
-
+// use indicatif::ProgressBar; // TODO: some progressbar cleanup
 
 #[derive(StructOpt, Debug)]
 #[structopt(name = "jlq")]
@@ -29,7 +30,7 @@ struct Opt {
     // The number of occurrences of the `v/verbose` flag
     /// Verbose mode (-v, -vv, -vvv, etc.)
     #[structopt(short, long, parse(from_occurrences))]
-    _verbose: u8,
+    verbose: u8,
 
     /// Run SQLite in-memory mode
     #[structopt(short = "m", long)]
@@ -80,17 +81,6 @@ pub async fn main() -> std::io::Result<()> {
     // let _ = conn.pragma_update(None, "synchronous", "normal").unwrap();
     // let _ = conn.pragma_update(None, "journal_mode", "WAL").unwrap();
 
-    // PRAGMA journal_mode = OFF;
-    // PRAGMA synchronous = 0;
-    // PRAGMA cache_size = 1000000;
-    // PRAGMA locking_mode = EXCLUSIVE;
-    // PRAGMA temp_store = MEMORY;
-    // let _ = conn.pragma_update(None, "journal_mode", "OFF");
-    // let _ = conn.pragma_update(None, "synchronous", "0");
-    // let _ = conn.pragma_update(None, "cache_size", "1000000");
-    // let _ = conn.pragma_update(None, "locking_mode", "EXCLUSIVE");
-    // let _ = conn.pragma_update(None, "temp_store", "MEMORY");
-
     conn.execute_batch(&format!(r#"
         CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, filename TEXT, json_line JSON);
         DELETE FROM logs;
@@ -108,7 +98,7 @@ pub async fn main() -> std::io::Result<()> {
         }
 
         while let Ok(Some(line)) = lines.next_line().await {
-            if opt.debug {
+            if opt.verbose > 1 {
                 println!("*** Tailed New Line: ({}) {} ***", line.source().display(), line.line());
             }
             let _insert = conn.execute_batch(&format!(r#"
@@ -123,10 +113,9 @@ pub async fn main() -> std::io::Result<()> {
         for f in opt.files {
             import_logfile(&f, &conn, opt.debug);
         }
+        // let _ = query.as_ref().and_then(|q| Some(filter_logs_by_query(q.to_string(), &conn)));
         if let Some(q) = query {
-            if opt.tail == false {
-                let _ = filter_logs_by_query(q.to_string(), &conn);
-            }
+            let _ = filter_logs_by_query(q.to_string(), &conn);
         }
     }
 
@@ -143,14 +132,22 @@ fn import_logfile(pb:&PathBuf, conn:&rusqlite::Connection, debug:bool) {
 
     let f = File::open(&full_path).unwrap();
 
+    // For Bulk Importing a logfile, setting these pragmas yields the best performance.
+    let _ = conn.pragma_update(None, "journal_mode", "OFF");
+    let _ = conn.pragma_update(None, "synchronous", "0");
+    let _ = conn.pragma_update(None, "cache_size", "1000000");
+    let _ = conn.pragma_update(None, "locking_mode", "EXCLUSIVE");
+    let _ = conn.pragma_update(None, "temp_store", "MEMORY");
+
     let reader = BufReader::new(f);
+    // TODO: some progressbar cleanup
+    // let bar = ProgressBar::new(8185995);
+    let mut stmt = conn.prepare_cached("INSERT INTO logs (filename, json_line) VALUES(?1, ?2)");
+    let tx = conn.unchecked_transaction();
     for line in reader.lines() {
         match line {
             Ok(l) => {
-                let insert = conn.execute_batch(&format!(r#"
-                    INSERT INTO logs VALUES(null, "{}", '{}');
-                    "#, filename, l.replace("'", "''"))
-                );
+                let insert = stmt.as_mut().expect("Import Prepare Statement Failed!").execute(params![ format!("{}",filename), l.replace("'", "''")]);
 
                 match insert {
                     Ok(_) => {
@@ -167,7 +164,13 @@ fn import_logfile(pb:&PathBuf, conn:&rusqlite::Connection, debug:bool) {
                 panic!("Error reading lines: {:#}", err);
             }
         }
+        // TODO: some progressbar cleanup
+        // bar.inc(1);
     }
+    let _ = tx.expect("Import Transaction Failed!").commit();
+
+    // TODO: some progressbar cleanup
+    // bar.finish();
 }
 
 fn filter_logs_by_query(query: String, conn:&rusqlite::Connection) -> Result<(), rusqlite::Error> {
