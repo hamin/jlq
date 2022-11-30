@@ -13,7 +13,7 @@ use rusqlite::Result;
 
 use linemux::MuxedLines;
 
-use colored_json;
+// use colored_json;
 use colored_json::prelude::*;
 // use indicatif::ProgressBar; // TODO: some progressbar cleanup
 
@@ -59,9 +59,10 @@ fn get_sqlite_conn(use_in_memory:bool) -> Result<SqliteConnection, Error> {
     if use_in_memory {
         return SqliteConnection::open_in_memory()
     }
-    return SqliteConnection::open("test.db");
+    SqliteConnection::open("test.db")
 }
 
+#[warn(clippy::pedantic)]
 #[tokio::main]
 pub async fn main() -> std::io::Result<()> {
     #[cfg(windows)]
@@ -77,10 +78,10 @@ pub async fn main() -> std::io::Result<()> {
 
     let conn = get_sqlite_conn(opt.in_memory_storage).expect("Unable to get SQlite connection!");
 
-    conn.execute_batch(&format!(r#"
+    conn.execute_batch(r#"
         CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, filename TEXT, json_line JSON);
         DELETE FROM logs;
-        "#)
+        "#
     ).expect("Unable to create 'logs' Table!");
 
     if opt.tail {
@@ -94,8 +95,8 @@ pub async fn main() -> std::io::Result<()> {
         }
 
         // When tailing, we're going to use WAL so SQLite file can externally be queried too if wanted/needed. Also yields better performance.
-        let _ = conn.pragma_update(None, "synchronous", "normal").unwrap();
-        let _ = conn.pragma_update(None, "journal_mode", "WAL").unwrap();
+        conn.pragma_update(None, "synchronous", "normal").unwrap();
+        conn.pragma_update(None, "journal_mode", "WAL").unwrap();
 
         let mut stmt = conn.prepare_cached("INSERT INTO logs (filename, json_line) VALUES(?1, ?2)");
 
@@ -104,9 +105,9 @@ pub async fn main() -> std::io::Result<()> {
                 println!("*** Tailed New Line: ({}) {} ***", line.source().display(), line.line());
             }
 
-            let _insert = stmt.as_mut().expect("Import Prepare Statement Failed!").execute(params![line.source().to_str().expect("No Fillename for Tailed File!"), line.line().replace("'", "''")]);
+            let _insert = stmt.as_mut().expect("Import Prepare Statement Failed!").execute(params![line.source().to_str().expect("No Fillename for Tailed File!"), line.line().replace('\'', "''")]);
             if let Some(ref q) = query {
-                let _ = filter_logs_by_query(q.to_string(), &conn);
+                let _f = filter_logs_by_query(q.to_string(), &conn);
             }
         }
     } else {
@@ -115,7 +116,7 @@ pub async fn main() -> std::io::Result<()> {
         }
         // let _ = query.as_ref().and_then(|q| Some(filter_logs_by_query(q.to_string(), &conn)));
         if let Some(q) = query {
-            let _ = filter_logs_by_query(q.to_string(), &conn);
+            let _f = filter_logs_by_query(q.to_string(), &conn);
         }
     }
 
@@ -147,12 +148,12 @@ fn import_logfile(pb:&PathBuf, conn:&rusqlite::Connection, debug:bool) {
     for line in reader.lines() {
         match line {
             Ok(l) => {
-                let insert = stmt.as_mut().expect("Import Prepare Statement Failed!").execute(params![ format!("{}",filename), l.replace("'", "''")]);
+                let insert = stmt.as_mut().expect("Import Prepare Statement Failed!").execute(params![ format!("{}",filename), l.replace('\'', "''")]);
 
                 match insert {
                     Ok(_) => {
                         if debug {
-                            println!("*** Importing {:#} ***", l.replace("'", "''"));
+                            println!("*** Importing {:#} ***", l.replace('\'', "''"));
                         }
                     }
                     Err(err) => {
