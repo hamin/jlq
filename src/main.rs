@@ -60,7 +60,7 @@ fn get_sqlite_conn(use_in_memory:bool) -> Result<SqliteConnection, Error> {
     if use_in_memory {
         return SqliteConnection::open_in_memory()
     }
-    SqliteConnection::open("test.db")
+    SqliteConnection::open("jlq.db")
 }
 
 #[warn(clippy::pedantic)]
