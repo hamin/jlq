@@ -106,9 +106,13 @@ pub async fn main() -> std::io::Result<()> {
                 println!("*** Tailed New Line: ({}) {} ***", line.source().display(), line.line());
             }
 
-            let _insert = stmt.as_mut().expect("Import Prepare Statement Failed!").execute(params![line.source().to_str().expect("No Fillename for Tailed File!"), line.line().replace('\'', "''")]);
+            let log_file = line.source().to_str().expect("No Fillename for Tailed File!");
+            let log_line = line.line().replace('\'', "''");
+
+
+            let _insert = stmt.as_mut().expect("Import Prepare Statement Failed!").execute(params![log_file, log_line]);
             if let Some(ref q) = query {
-                let _f = filter_logs_by_query(q.to_string(), &conn);
+                let _f = filter_log_line_by_query(log_line, q.to_string(), &conn);
             }
         }
     } else {
@@ -191,6 +195,22 @@ fn filter_logs_by_query(query: String, conn:&rusqlite::Connection) -> Result<(),
 
     for log_line in log_iter {
         if let Ok(l) = log_line?.log_line.to_colored_json_auto() {
+            println!("{:#}", l);
+        }
+    }
+    Ok(())
+}
+
+fn filter_log_line_by_query(line: String, query: String, conn:&rusqlite::Connection) -> Result<(), rusqlite::Error> {
+    let query_with_json_log = query.replace("log_line", &format!("'{:#}'", line));
+    let q = format!(r#"
+        SELECT json_valid('{}') AND {};
+        "#, line, query_with_json_log);
+
+    let res : i64 = conn.query_row(&q, [], |r| r.get(0)).unwrap();
+
+    if res == 1 {
+        if let Ok(l) = line.to_colored_json_auto() {
             println!("{:#}", l);
         }
     }
