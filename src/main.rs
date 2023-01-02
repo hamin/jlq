@@ -18,6 +18,7 @@ use colored_json::prelude::*;
 // use indicatif::ProgressBar; // TODO: some progressbar cleanup
 
 #[derive(StructOpt, Debug)]
+#[doc = include_str!("../about.md")]
 #[structopt(name = "jlq")]
 struct Opt {
     // A flag, true if used in the command line. Note doc comment will
@@ -36,7 +37,7 @@ struct Opt {
     #[structopt(short = "m", long)]
     in_memory_storage: bool,
 
-    /// SQLite json query e.g. "json_line->>'level_name' = 'DEBUG'"
+    /// SQLite json query e.g. "log_line->>'level_name' = 'DEBUG'"
     #[structopt(short, long)]
     query: Option<String>,
 
@@ -52,7 +53,7 @@ struct Opt {
 struct Log {
     _id: i64,
     _filename: String,
-    json_line: String,
+    log_line: String,
 }
 
 fn get_sqlite_conn(use_in_memory:bool) -> Result<SqliteConnection, Error> {
@@ -79,7 +80,7 @@ pub async fn main() -> std::io::Result<()> {
     let conn = get_sqlite_conn(opt.in_memory_storage).expect("Unable to get SQlite connection!");
 
     conn.execute_batch(r#"
-        CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, filename TEXT, json_line JSON);
+        CREATE TABLE IF NOT EXISTS logs (id INTEGER PRIMARY KEY, filename TEXT, log_line JSON);
         DELETE FROM logs;
         "#
     ).expect("Unable to create 'logs' Table!");
@@ -98,7 +99,7 @@ pub async fn main() -> std::io::Result<()> {
         conn.pragma_update(None, "synchronous", "normal").unwrap();
         conn.pragma_update(None, "journal_mode", "WAL").unwrap();
 
-        let mut stmt = conn.prepare_cached("INSERT INTO logs (filename, json_line) VALUES(?1, ?2)");
+        let mut stmt = conn.prepare_cached("INSERT INTO logs (filename, log_line) VALUES(?1, ?2)");
 
         while let Ok(Some(line)) = lines.next_line().await {
             if opt.verbose > 1 {
@@ -143,7 +144,7 @@ fn import_logfile(pb:&PathBuf, conn:&rusqlite::Connection, debug:bool) {
     let reader = BufReader::new(f);
     // TODO: some progressbar cleanup
     // let bar = ProgressBar::new(8185995);
-    let mut stmt = conn.prepare_cached("INSERT INTO logs (filename, json_line) VALUES(?1, ?2)");
+    let mut stmt = conn.prepare_cached("INSERT INTO logs (filename, log_line) VALUES(?1, ?2)");
     let tx = conn.unchecked_transaction();
     for line in reader.lines() {
         match line {
@@ -176,7 +177,7 @@ fn import_logfile(pb:&PathBuf, conn:&rusqlite::Connection, debug:bool) {
 
 fn filter_logs_by_query(query: String, conn:&rusqlite::Connection) -> Result<(), rusqlite::Error> {
     let q = format!(r#"
-        SELECT * FROM logs WHERE json_valid(json_line) AND {};
+        SELECT * FROM logs WHERE json_valid(log_line) AND {};
         "#, query);
 
     let mut stmt = conn.prepare(&q)?;
@@ -184,12 +185,12 @@ fn filter_logs_by_query(query: String, conn:&rusqlite::Connection) -> Result<(),
         Ok(Log {
             _id: row.get(0)?,
             _filename: row.get(1)?,
-            json_line: row.get(2)?,
+            log_line: row.get(2)?,
         })
     })?;
 
     for log_line in log_iter {
-        if let Ok(l) = log_line?.json_line.to_colored_json_auto() {
+        if let Ok(l) = log_line?.log_line.to_colored_json_auto() {
             println!("{:#}", l);
         }
     }
