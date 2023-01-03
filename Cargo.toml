@@ -2,6 +2,15 @@
 name = "jlq"
 version = "0.1.0"
 edition = "2021"
+authors = ["Haris Amin <aminharis7@gmail.com>"]
+description = """
+Query JSON log files quickly and efficiently with the power of SQLite
+"""
+readme = "README.md"
+homepage = "https://github.com/hamin/jlq"
+license = "MIT"
+keywords = ["jq", "json", "log", "query", "SQLite"]
+categories = ["command-line-utilities"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

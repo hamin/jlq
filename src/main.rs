@@ -18,7 +18,6 @@ use colored_json::prelude::*;
 // use indicatif::ProgressBar; // TODO: some progressbar cleanup
 
 #[derive(StructOpt, Debug)]
-#[doc = include_str!("../about.md")]
 #[structopt(name = "jlq")]
 struct Opt {
     // A flag, true if used in the command line. Note doc comment will
